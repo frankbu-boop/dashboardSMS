@@ -1,0 +1,1192 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SMS Gateway Analytics Dashboard</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- PapaParse for CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    
+    <!-- Flatpickr for Date Range -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+    <script src="https://npmcdn.com/flatpickr/dist/l10n/th.js"></script>
+
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap');
+        
+        body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; }
+        .kpi-card { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .kpi-card:hover { transform: translateY(-3px); box-shadow: 0 12px 20px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05); }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+    </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden text-slate-800">
+
+    <!-- Navbar -->
+    <nav class="bg-gradient-to-r from-slate-900 via-blue-900 to-slate-900 text-white shadow-md shrink-0 z-20 relative">
+        <div class="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16 items-center">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-white/10 p-2 rounded-lg backdrop-blur-sm border border-white/10 relative group">
+                        <i class="fa-solid fa-chart-pie text-xl text-blue-400"></i>
+                        <div class="absolute hidden group-hover:block top-10 left-0 bg-black/90 text-white text-[10px] p-2 rounded w-48 shadow-lg z-50">
+                            <p>สถิติการดึงข้อมูลชีตรอง:</p>
+                            <p id="debugReturns">Returns: 0 weeks parsed</p>
+                            <p id="debugDeposits">Deposits: 0 weeks parsed</p>
+                        </div>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight tracking-wide text-white">SMS Analytics Pro</h1>
+                        <p class="text-[11px] text-amber-300 font-medium" id="lastUpdatedText">รอการเชื่อมต่อข้อมูล...</p>
+                    </div>
+                </div>
+                
+                <div class="flex items-center space-x-3">
+                    <!-- URL สำหรับชีตหลัก (Daily) -->
+                    <input type="hidden" id="sheetUrlInput" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vSwaBEu5GNqoUY3PQdKcsvZ0qTChqg2D8HFEYQVgtLA391C8TbtjaIq7vzMxVkPM6bOTv0ONM_r4tGP/pub?gid=1469247904&single=true&output=csv">
+                    
+                    <!-- URL สำหรับชีตรายสัปดาห์ (เพิ่งสร้างใหม่!) -->
+                    <input type="hidden" id="sheetUrlReturns" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vROfm7rl9OHKpE_69zj32Sc2Pj9WS65axdlkO2G-zUleQZo4KgKrT-fuwk9e39bcIKzFGlI2HZJs_oE/pub?gid=847664006&single=true&output=csv">
+                    <input type="hidden" id="sheetUrlDeposits" value="https://docs.google.com/spreadsheets/d/e/2PACX-1vROfm7rl9OHKpE_69zj32Sc2Pj9WS65axdlkO2G-zUleQZo4KgKrT-fuwk9e39bcIKzFGlI2HZJs_oE/pub?gid=1783259371&single=true&output=csv">
+                    
+                    <button id="refreshBtn" onclick="manualRefresh()" class="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg transition-all shadow-sm shadow-blue-900/20 text-sm font-medium flex items-center space-x-2">
+                        <i class="fa-solid fa-rotate-right" id="refreshIcon"></i>
+                        <span class="hidden sm:inline">รีเฟรชข้อมูล</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="flex-1 overflow-auto bg-slate-50 p-4 sm:p-6 pb-20">
+        <div class="max-w-[1400px] mx-auto space-y-6" id="dashboardContent">
+            
+            <!-- MEGA DEBUG BANNER -->
+            <div id="megaDebugBanner" class="bg-slate-900 text-emerald-400 p-4 font-mono text-xs overflow-auto max-h-60 rounded-xl shadow-lg border border-slate-700 hidden">
+                <div class="font-bold text-emerald-300 mb-2 flex justify-between items-center">
+                    <span><i class="fa-solid fa-terminal mr-2"></i> SYSTEM DIAGNOSTIC (เครื่องมือตรวจสอบข้อมูล)</span>
+                    <button onclick="document.getElementById('megaDebugBanner').classList.add('hidden')" class="text-slate-400 hover:text-white bg-slate-800 px-3 py-1 rounded"><i class="fa-solid fa-times"></i> ปิด</button>
+                </div>
+                <div id="megaDebugText" class="space-y-1">กำลังโหลดข้อมูลตรวจสอบ...</div>
+            </div>
+            
+            <!-- Overview Filters -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 sticky top-0 z-10 backdrop-blur-xl bg-white/80">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                    <div class="col-span-1 md:col-span-2">
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider"><i class="fa-regular fa-calendar mr-1"></i> ช่วงวันที่ (มีผลกับภาพรวมด้านล่าง)</label>
+                        <input type="text" id="globalDateFilter" placeholder="เลือกช่วงวันที่..." class="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 transition-colors cursor-pointer">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider"><i class="fa-solid fa-users mr-1"></i> กลุ่มลูกค้า</label>
+                        <select id="globalGroupFilter" class="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 transition-colors">
+                            <option value="all">ทั้งหมด (ทุกกลุ่ม)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-500 mb-1.5 uppercase tracking-wider"><i class="fa-solid fa-globe mr-1"></i> เว็บไซต์</label>
+                        <select id="globalWebFilter" class="w-full bg-slate-50 border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-2.5 transition-colors">
+                            <option value="all">ทั้งหมด (ทุกเว็บ)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- KPI Cards -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+                <!-- KPI 1 -->
+                <div class="bg-blue-600 rounded-xl p-5 border border-blue-700 shadow-sm kpi-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <i class="fa-solid fa-paper-plane text-8xl text-white"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <div class="relative z-10">
+                            <p class="text-blue-100 text-xs font-semibold mb-1 uppercase tracking-wide">จำนวนที่ยิงทั้งหมด</p>
+                            <h3 class="text-3xl font-bold text-white tracking-tight" id="kpiSent">0</h3>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-blue-100 font-medium relative z-10">
+                        <span class="bg-white/20 px-2 py-1 rounded text-white mr-2"><span id="kpiSentAvg">0</span> เฉลี่ย/วัน</span>
+                    </div>
+                </div>
+                <!-- KPI 2 -->
+                <div class="bg-emerald-600 rounded-xl p-5 border border-emerald-700 shadow-sm kpi-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <i class="fa-solid fa-circle-check text-8xl text-white"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <div class="relative z-10">
+                            <p class="text-emerald-100 text-xs font-semibold mb-1 uppercase tracking-wide">จำนวนยิงผ่าน</p>
+                            <div class="flex items-baseline gap-2">
+                                <h3 class="text-3xl font-bold text-white tracking-tight" id="kpiSuccess">0</h3>
+                                <span class="bg-white/20 px-1.5 py-0.5 rounded text-white font-bold text-sm" id="kpiSuccessRate">0%</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-emerald-100 font-medium relative z-10">
+                        <span>อัตราความสำเร็จสูง</span>
+                    </div>
+                </div>
+                <!-- KPI 3 -->
+                <div class="bg-orange-500 rounded-xl p-5 border border-orange-600 shadow-sm kpi-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <i class="fa-solid fa-hand-pointer text-8xl text-white"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <div class="relative z-10">
+                            <p class="text-orange-100 text-xs font-semibold mb-1 uppercase tracking-wide">Click Bitly</p>
+                            <div class="flex items-baseline gap-2">
+                                <h3 class="text-3xl font-bold text-white tracking-tight" id="kpiClicks">0</h3>
+                                <span class="bg-white/20 px-1.5 py-0.5 rounded text-white font-bold text-sm">คิดเป็น <span id="kpiClickRate">0%</span></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-orange-100 font-medium relative z-10">
+                        <span>อัตราการคลิก (%) เทียบยอดผ่าน</span>
+                    </div>
+                </div>
+                <!-- KPI 4 -->
+                <div class="bg-rose-600 rounded-xl p-5 border border-rose-700 shadow-sm kpi-card relative overflow-hidden group">
+                    <div class="absolute -right-4 -top-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <i class="fa-solid fa-wallet text-8xl text-white"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <div class="relative z-10">
+                            <p class="text-rose-100 text-xs font-semibold mb-1 uppercase tracking-wide">ค่าใช้จ่ายรวม</p>
+                            <h3 class="text-3xl font-bold text-white tracking-tight" id="kpiCost">฿0</h3>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center text-xs text-rose-100 font-medium relative z-10">
+                        <span id="kpiCostPerClick">฿0</span> / คลิก
+                    </div>
+                </div>
+            </div>
+
+            <!-- MULTI-SET COMPARISON SECTION -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 mt-6">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-lg flex items-center">
+                            <div class="bg-indigo-100 text-indigo-600 p-1.5 rounded mr-3"><i class="fa-solid fa-code-compare"></i></div>
+                            เปรียบเทียบข้อมูลเชิงลึก
+                        </h3>
+                    </div>
+                    <button onclick="addCompareSet()" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 px-4 py-2 rounded-lg transition-colors text-sm font-semibold flex items-center shadow-sm">
+                        <i class="fa-solid fa-plus mr-2"></i> เพิ่มชุดเปรียบเทียบ
+                    </button>
+                </div>
+
+                <div id="compareCardsContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
+                    <!-- Cards injected by JS -->
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+                    <div class="xl:col-span-3 bg-slate-50 rounded-xl p-1 border border-slate-200 overflow-hidden">
+                        <div class="overflow-x-auto w-full rounded-lg">
+                            <table class="w-full text-sm text-left whitespace-nowrap bg-white">
+                                <thead class="text-xs text-slate-600 uppercase bg-slate-100 border-b border-slate-200" id="compareTableHeader">
+                                </thead>
+                                <tbody id="compareTableBody" class="divide-y divide-slate-100">
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="xl:col-span-2 bg-white rounded-xl border border-slate-200 p-4 h-[350px]">
+                        <canvas id="multiCompareChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm lg:col-span-2">
+                    <h3 class="font-semibold text-slate-800 mb-4 flex items-center"><i class="fa-solid fa-chart-line text-blue-500 mr-2"></i>แนวโน้ม จำนวนยิง และ ค่าใช้จ่าย (รายวัน)</h3>
+                    <div class="h-72"><canvas id="trendChart"></canvas></div>
+                </div>
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-semibold text-slate-800 mb-4 text-center"><i class="fa-solid fa-chart-pie text-indigo-500 mr-2"></i>สัดส่วนยิงผ่าน แยกตามกลุ่มลูกค้า</h3>
+                    <div class="h-64 flex justify-center"><canvas id="groupChart"></canvas></div>
+                </div>
+                <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm">
+                    <h3 class="font-semibold text-slate-800 mb-4 text-center"><i class="fa-solid fa-globe text-emerald-500 mr-2"></i>สัดส่วนยิงผ่าน แยกตามเว็บไซต์</h3>
+                    <div class="h-64 flex justify-center"><canvas id="webChart"></canvas></div>
+                </div>
+            </div>
+            
+            <!-- GROUP DETAIL TABLE WITH INLINE MEDIANS -->
+            <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm mt-6">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="font-semibold text-slate-800"><i class="fa-solid fa-list-check text-purple-500 mr-2"></i>สรุปข้อมูลตามกลุ่มลูกค้า</h3>
+                    <span class="text-xs bg-amber-50 text-amber-700 border border-amber-200 px-3 py-1.5 rounded-full shadow-sm"><i class="fa-solid fa-scale-balanced mr-1"></i> ลูกศรคือการเทียบ <b>ค่าปัจจุบันเฉลี่ย/สัปดาห์</b> กับ <b>ค่ามัธยฐาน/สัปดาห์ (ของทั้งระบบ)</b></span>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-slate-600">
+                        <thead class="text-xs text-slate-700 uppercase bg-slate-50 border-b border-slate-200">
+                            <tr>
+                                <th scope="col" class="px-6 py-4 rounded-tl-lg font-bold">กลุ่มลูกค้า</th>
+                                <th scope="col" class="px-6 py-4 text-right">จำนวนการยิง</th>
+                                <th scope="col" class="px-6 py-4 text-right">จำนวนการยิงผ่าน</th>
+                                <th scope="col" class="px-6 py-4 text-right">จำนวนคลิก (%)</th>
+                                <th scope="col" class="px-6 py-4 text-right">จำนวนการกลับมา (%)</th>
+                                <th scope="col" class="px-6 py-4 text-right rounded-tr-lg">3D Deposit (THB)</th>
+                            </tr>
+                        </thead>
+                        <tbody id="groupTableBody" class="divide-y divide-slate-100">
+                            <!-- Table Body Injected via JS -->
+                        </tbody>
+                        <tfoot class="font-bold text-slate-900 bg-slate-50 border-t border-slate-200" id="groupTableFoot">
+                        </tfoot>
+                    </table>
+                </div>
+                
+                <div class="mt-4 flex justify-between items-center">
+                    <button onclick="document.getElementById('megaDebugBanner').classList.toggle('hidden')" class="text-xs text-slate-500 hover:text-blue-600 bg-slate-100 px-3 py-1.5 rounded-lg font-medium transition-colors border border-slate-200 shadow-sm flex items-center gap-2"><i class="fa-solid fa-stethoscope"></i> เปิดหน้าต่างวิเคราะห์ปัญหา (คลิกถ้าข้อมูลเป็น 0)</button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- START JAVASCRIPT -->
+    <script>
+        // --- State Variables ---
+        let rawData = [];
+        let filteredData = [];
+        let globalDatePicker = null;
+        let periodData = { weeks: [], months: [] };
+        let groupsList = [];
+        let websList = [];
+        
+        let historicalMedians = {};
+        let weeklyMetrics = {}; // Format: { weekNumber: { webName: { groupName: { returns: 0, deposits: 0 } } } }
+        
+        // ตัวแปรเก็บประวัติการโหลด CSV เพื่อทำ Debug Panel
+        let diagnosticLog = [];
+
+        const targetGroupsRaw = [
+            "IA7", "IA14", "IA19", "IA25", "IA30", 
+            "NAR 1D NO FTD", "NAR 5D NO FTD", 
+            "FTD 3D NO STD", "FTD 14D NO STD", 
+            "ลูกค้ากลุ่ม C (Remind)", "Remind point LPR", 
+            "ลูกค้าใหม่ (ซื้อเบอร์มา)", "MG remind"
+        ];
+        
+        const normalizeStr = (s) => s.toLowerCase().replace(/\s+/g, '').replace('ลุกค้า', 'ลูกค้า');
+        const targetGroupsMatch = targetGroupsRaw.map(g => normalizeStr(g));
+
+        // 1. ฟังก์ชันแปลงชื่อเว็บ
+        function mapWebName(rawWeb) {
+            if(!rawWeb) return 'ไม่ระบุ';
+            let w = rawWeb.toString().toUpperCase().trim();
+            if(w.includes('GBA') || w.includes('W77')) return 'W77';
+            if(w.includes('HS66')) return 'HS66';
+            if(w.includes('JL88')) return 'JL88';
+            if(w.includes('LC88')) return 'LC88';
+            if(w.includes('U99')) return 'U99';
+            return rawWeb.toString().trim();
+        }
+
+        // 2. ฟังก์ชันแปลงชื่อกลุ่มลูกค้า
+        function mapGroupName(rawGroup) {
+            if(!rawGroup) return 'ไม่ระบุ';
+            let g = rawGroup.toString().trim().toUpperCase();
+            
+            // ลบคำกวนใจออกแบบกวาดหมด
+            const badWords = ['UFA', 'GBA', '(HS66)', 'HS66', 'JL88', 'LC88'];
+            badWords.forEach(word => {
+                g = g.split(word.toUpperCase()).join('').trim();
+            });
+            
+            // Clean spaces
+            g = g.replace(/\s+/g, ' ');
+            
+            // แมทช์ตรงๆ
+            if(g.includes('REMIND POINT LPR')) return 'Remind point LPR';
+            if(g.includes('FTD 14D NO STD')) return 'FTD 14D NO STD';
+            if(g.includes('FTD 3D NO STD')) return 'FTD 3D NO STD';
+            if(g.includes('NAR 5D NO FTD')) return 'NAR 5D NO FTD';
+            if(g.includes('NAR 1D NO FTD')) return 'NAR 1D NO FTD';
+            if(g.includes('IA30')) return 'IA30';
+            if(g.includes('IA25')) return 'IA25';
+            if(g.includes('IA19')) return 'IA19';
+            if(g.includes('IA14')) return 'IA14';
+            if(g.includes('IA7')) return 'IA7';
+            if(g.includes('กลุ่ม C') || g.includes('กลุ่ม C (REMIND)')) return 'ลูกค้ากลุ่ม C (Remind)';
+            if(g.includes('MG REMIND')) return 'MG remind';
+            if(g.includes('ซื้อเบอร์มา')) return 'ลูกค้าใหม่ (ซื้อเบอร์มา)';
+            
+            return rawGroup.toString().trim();
+        }
+
+        const setColors = [
+            { bg: 'bg-blue-50/50', border: 'border-blue-200', text: 'text-blue-700', ring: 'focus:ring-blue-500', focusBorder: 'focus:border-blue-500', hex: '#3b82f6', hexLight: 'rgba(59, 130, 246, 0.85)' },
+            { bg: 'bg-orange-50/50', border: 'border-orange-200', text: 'text-orange-700', ring: 'focus:ring-orange-500', focusBorder: 'focus:border-orange-500', hex: '#f97316', hexLight: 'rgba(249, 115, 22, 0.85)' },
+            { bg: 'bg-emerald-50/50', border: 'border-emerald-200', text: 'text-emerald-700', ring: 'focus:ring-emerald-500', focusBorder: 'focus:border-emerald-500', hex: '#10b981', hexLight: 'rgba(16, 185, 129, 0.85)' }
+        ];
+
+        let compareSets = [];
+        let nextSetId = 1;
+        let compareDatePickers = {};
+        
+        let multiCompareChartInstance = null;
+        let trendChartInstance = null;
+        let groupChartInstance = null;
+        let webChartInstance = null;
+        
+        const baseColors = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+        const fNum = (num) => new Intl.NumberFormat('th-TH').format(Math.round(num || 0));
+        const fCur = (num) => '฿' + new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num || 0);
+
+        function calculateMedian(values) {
+            if (values.length === 0) return 0;
+            const sorted = [...values].sort((a, b) => a - b);
+            const half = Math.floor(sorted.length / 2);
+            if (sorted.length % 2) return sorted[half];
+            return (sorted[half - 1] + sorted[half]) / 2.0;
+        }
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            initGlobalUI();
+            manualRefresh(); 
+            // อัปเดตเงียบๆ ตอนเที่ยงคืน
+            setInterval(() => {
+                const now = new Date();
+                if(now.getHours() === 0 && now.getMinutes() === 0) {
+                    manualRefresh(true);
+                }
+            }, 60000); 
+        });
+
+        function initGlobalUI() {
+            try {
+                globalDatePicker = flatpickr("#globalDateFilter", {
+                    mode: "range", dateFormat: "Y-m-d", locale: "th",
+                    onChange: (dates) => { if (dates.length === 2 || dates.length === 0) applyGlobalFilters(); }
+                });
+                document.getElementById('globalGroupFilter').addEventListener('change', applyGlobalFilters);
+                document.getElementById('globalWebFilter').addEventListener('change', () => {
+                    applyGlobalFilters();
+                    updateCompareData(); 
+                });
+            } catch(e) { console.error("Flatpickr error", e); }
+        }
+
+        // 3. ฟังก์ชันอ่านข้อมูลจากชีตรายสัปดาห์ (บังคับอ่านแถว 1 เสมอ)
+        function parseWeeklyCSV(csvText, type) {
+            diagnosticLog.push(`[${type.toUpperCase()}] เริ่มอ่านไฟล์ CSV...`);
+            Papa.parse(csvText, {
+                header: false, skipEmptyLines: true,
+                complete: function(results) {
+                    const data = results.data;
+                    if(data.length < 2) {
+                        diagnosticLog.push(`[${type.toUpperCase()}] ERROR: ไฟล์มีข้อมูลน้อยกว่า 2 บรรทัด`);
+                        return;
+                    }
+                    
+                    // บังคับอ่านหัวตารางจากบรรทัดที่ 1 (Index 0)
+                    const headerRowIndex = 0;
+                    const headerRow = data[headerRowIndex]; 
+                    
+                    diagnosticLog.push(`[${type.toUpperCase()}] พบหัวตาราง: ${headerRow.join(' | ').substring(0, 100)}...`);
+                    
+                    const weekCols = {};
+                    
+                    // หาเลข Week ตั้งแต่คอลัมน์ C (Index 2) เป็นต้นไป
+                    for(let i = 2; i < headerRow.length; i++) { 
+                        if(headerRow[i]) {
+                            const headerStr = headerRow[i].toString().toUpperCase().trim();
+                            let matchedWeekNum = null;
+                            
+                            // ลองหาแพทเทิร์น W38 ก่อน
+                            let wkMatch = headerStr.match(/W(?:EEK)?\s*(\d+)/);
+                            if(wkMatch) {
+                                matchedWeekNum = parseInt(wkMatch[1], 10);
+                                diagnosticLog.push(`[${type.toUpperCase()}] คอลัมน์ที่ ${i+1} (${headerStr}) -> เจอรหัส W: ${matchedWeekNum}`);
+                            } else {
+                                // ถ้าไม่มี W ให้ดึงตัวเลขตัวแรกออกมา
+                                let matchFirstNum = headerStr.match(/\d+/);
+                                if(matchFirstNum) {
+                                    matchedWeekNum = parseInt(matchFirstNum[0], 10);
+                                    diagnosticLog.push(`[${type.toUpperCase()}] คอลัมน์ที่ ${i+1} (${headerStr}) -> เดาจากเลขแรก: ${matchedWeekNum}`);
+                                }
+                            }
+                            
+                            if (matchedWeekNum) {
+                                weekCols[i] = matchedWeekNum;
+                            }
+                        }
+                    }
+                    
+                    const foundWeeks = Object.values(weekCols);
+                    diagnosticLog.push(`[${type.toUpperCase()}] สรุปสัปดาห์ที่พบทั้งหมด: [${[...new Set(foundWeeks)].join(', ')}]`);
+                    
+                    if(type === 'returns') document.getElementById('debugReturns').innerText = `Returns: found ${foundWeeks.length} weeks`;
+                    if(type === 'deposits') document.getElementById('debugDeposits').innerText = `Deposits: found ${foundWeeks.length} weeks`;
+
+                    let lastWeb = 'ไม่ระบุ';
+                    let processedRows = 0;
+                    
+                    for(let r = headerRowIndex + 1; r < data.length; r++) {
+                        const row = data[r];
+                        if(!row || row.length < 2) continue;
+                        
+                        let rawWeb = (row[0] || '').toString().trim();
+                        if (rawWeb !== '') lastWeb = mapWebName(rawWeb);
+                        const web = lastWeb; 
+                        
+                        let rawGroup = (row[1] || '').toString().trim();
+                        if (rawGroup === '') continue; 
+                        const group = mapGroupName(rawGroup);
+                        
+                        for(let col in weekCols) {
+                            const weekNum = weekCols[col];
+                            const val = parseFloat((row[col]||'').toString().replace(/,/g, '').replace(/%/g, '')) || 0;
+                            
+                            if(!weeklyMetrics[weekNum]) weeklyMetrics[weekNum] = {};
+                            if(!weeklyMetrics[weekNum][web]) weeklyMetrics[weekNum][web] = {};
+                            if(!weeklyMetrics[weekNum][web][group]) weeklyMetrics[weekNum][web][group] = { returns: 0, deposits: 0 };
+                            
+                            if(type === 'returns') weeklyMetrics[weekNum][web][group].returns += val;
+                            else weeklyMetrics[weekNum][web][group].deposits += val;
+                        }
+                        processedRows++;
+                    }
+                    diagnosticLog.push(`[${type.toUpperCase()}] ประมวลผลสำเร็จ ${processedRows} บรรทัด`);
+                }
+            });
+        }
+
+        async function manualRefresh(isSilent = false) {
+            const btn = document.getElementById('refreshBtn');
+            const icon = document.getElementById('refreshIcon');
+            if(!isSilent) {
+                btn.classList.add('opacity-75', 'cursor-not-allowed');
+                icon.classList.add('fa-spin');
+                document.getElementById('lastUpdatedText').innerText = "กำลังดึงข้อมูลจริง...";
+            }
+            
+            // รีเซ็ต Log ทุกครั้งที่รีเฟรช
+            diagnosticLog = ["เริ่มระบบเชื่อมต่อ Google Sheets..."];
+            
+            const cacheBuster = `&_t=${new Date().getTime()}`;
+            const urlMain = document.getElementById('sheetUrlInput').value + cacheBuster;
+            const urlReturns = document.getElementById('sheetUrlReturns').value + cacheBuster;
+            const urlDeposits = document.getElementById('sheetUrlDeposits').value + cacheBuster;
+            
+            try {
+                const [resMain, resReturns, resDeposits] = await Promise.all([
+                    fetch(urlMain, { cache: 'no-store' }).then(r => r.ok ? r.text() : ""),
+                    fetch(urlReturns, { cache: 'no-store' }).then(r => r.ok ? r.text() : ""),
+                    fetch(urlDeposits, { cache: 'no-store' }).then(r => r.ok ? r.text() : "")
+                ]);
+                
+                weeklyMetrics = {}; 
+                
+                if(resReturns) parseWeeklyCSV(resReturns, 'returns');
+                else diagnosticLog.push(`[ERROR] โหลดไฟล์ Returns ไม่สำเร็จ`);
+                
+                if(resDeposits) parseWeeklyCSV(resDeposits, 'deposits');
+                else diagnosticLog.push(`[ERROR] โหลดไฟล์ Deposits ไม่สำเร็จ`);
+                
+                if(!resMain) throw new Error('Network error on main data');
+                
+                Papa.parse(resMain, {
+                    header: false, skipEmptyLines: true,
+                    complete: function(results) {
+                        try {
+                            processData(results.data);
+                            calculateHistoricalMedians();
+                            updateGlobalKPIs();
+                            updateGlobalCharts();
+                            updateCompareData();
+                            applyGlobalFilters();
+                            
+                            document.getElementById('lastUpdatedText').innerText = `อัปเดตล่าสุด: ${new Date().toLocaleTimeString('th-TH')}`;
+                            document.getElementById('lastUpdatedText').classList.replace('text-amber-300', 'text-blue-200');
+                            
+                            // อัปเดตข้อความใน Mega Debug Banner
+                            updateMegaDebugBanner();
+                        } catch(err) {
+                            console.error(err);
+                            if(!isSilent) alert("เกิดข้อผิดพลาดในการจัดรูปแบบข้อมูล");
+                        }
+                    }
+                });
+            } catch(err) {
+                console.error(err);
+                if(!isSilent) document.getElementById('lastUpdatedText').innerText = "เชื่อมต่อล้มเหลว";
+            } finally {
+                if(!isSilent) {
+                    btn.classList.remove('opacity-75', 'cursor-not-allowed');
+                    icon.classList.remove('fa-spin');
+                }
+            }
+        }
+
+        // ฟังก์ชันสร้างข้อความ Debug
+        function updateMegaDebugBanner() {
+            const banner = document.getElementById('megaDebugText');
+            if(!banner) return;
+            
+            const globalWebVal = document.getElementById('globalWebFilter') ? document.getElementById('globalWebFilter').value : 'all';
+            
+            let html = `<ul class="list-disc pl-5 mb-2">`;
+            diagnosticLog.forEach(log => {
+                let color = log.includes('ERROR') ? 'text-rose-400 font-bold' : (log.includes('เจอรหัส W') ? 'text-indigo-300' : 'text-slate-300');
+                html += `<li class="${color}">${log}</li>`;
+            });
+            html += `</ul><div class="h-px bg-slate-700 my-2"></div>`;
+            
+            html += `<div class="text-amber-300 font-bold mb-1">🔍 ตรวจสอบการจับคู่ข้อมูล (Current State):</div>`;
+            const keys = Object.keys(weeklyMetrics);
+            html += `<div>Weeks ที่อยู่ในความทรงจำระบบตอนนี้: <b>[${keys.join(', ') || 'ไม่มีเลย'}]</b></div>`;
+            
+            // เช็คว่า Week ปัจจุบันหาเจอไหม
+            if (globalDatePicker && globalDatePicker.selectedDates && globalDatePicker.selectedDates.length === 2) {
+                const start = globalDatePicker.selectedDates[0];
+                const end = globalDatePicker.selectedDates[1];
+                html += `<div>ช่วงวันที่เลือก: ${start.toLocaleDateString()} - ${end.toLocaleDateString()}</div>`;
+                
+                const activeWeeksSet = new Set();
+                filteredData.forEach(row => {
+                    const rd = new Date(row.date); rd.setHours(0,0,0,0);
+                    let matchW = periodData.weeks.find(w => rd >= w.start && rd <= w.end);
+                    if(matchW) activeWeeksSet.add(matchW.weekNum);
+                });
+                
+                html += `<div class="mt-2 text-indigo-300">สัปดาห์ที่ตรงกับช่วงวันที่เลือก: [${Array.from(activeWeeksSet).join(', ')}]</div>`;
+                
+                activeWeeksSet.forEach(wkNum => {
+                    if (weeklyMetrics[wkNum]) {
+                        html += `<div class="ml-4 text-emerald-400">✓ พบข้อมูล Week ${wkNum} ในชีต!</div>`;
+                        const webs = Object.keys(weeklyMetrics[wkNum]);
+                        html += `<div class="ml-8 text-slate-400">- เว็บที่มีใน Week นี้: ${webs.join(', ')}</div>`;
+                        
+                        if(globalWebVal !== 'all' && !webs.includes(globalWebVal)) {
+                            html += `<div class="ml-8 text-rose-400">❌ แต่เว็บที่คุณเลือก (${globalWebVal}) ไม่มีอยู่ในชีต Week นี้!</div>`;
+                        } else if(globalWebVal !== 'all') {
+                            const groups = Object.keys(weeklyMetrics[wkNum][globalWebVal]);
+                            html += `<div class="ml-8 text-blue-300">- กลุ่มในเว็บ ${globalWebVal}: ${groups.join(', ')}</div>`;
+                        }
+                    } else {
+                        html += `<div class="ml-4 text-rose-400">❌ ไม่พบข้อมูล Week ${wkNum} ในชีตรอง! (ระบบหาเลขนี้ไม่เจอในแถวแรกของชีตคุณ)</div>`;
+                    }
+                });
+            }
+            
+            banner.innerHTML = html;
+        }
+
+        function processData(data) {
+            if (!data || data.length < 2) return;
+            
+            const dateIdx = 0;   
+            const groupIdx = 3;  
+            const webIdx = 4;    
+            const sentIdx = 8;   
+            const successIdx = 9;
+            const clicksIdx = 10;
+            const costIdx = 12;  
+
+            const cleanData = [];
+            
+            for (let i = 1; i < data.length; i++) {
+                const row = data[i];
+                if (!row || row.length < 4) continue; 
+                
+                let rawDate = (row[dateIdx] || '').toString().trim();
+                let dateStr = "";
+                if(rawDate) {
+                    if (rawDate.includes('/')) {
+                        const parts = rawDate.split(/[\s/]+/); 
+                        if(parts.length >= 3) {
+                            const day = parts[0].padStart(2, '0'); const month = parts[1].padStart(2, '0'); let year = parts[2];
+                            if(year.length === 2) year = "20" + year; if(parseInt(year) > 2500) year = (parseInt(year) - 543).toString(); 
+                            dateStr = `${year}-${month}-${day}`;
+                        }
+                    } else { const d = new Date(rawDate); if (!isNaN(d.getTime())) dateStr = d.toISOString().split('T')[0]; }
+                }
+                if(!dateStr) continue;
+
+                const pNum = (val) => { const n = parseFloat((val||'').toString().replace(/,/g, '').replace(/%/g, '')); return isNaN(n) ? 0 : n; };
+
+                const matchedGroup = mapGroupName(row[groupIdx]);
+                if (matchedGroup === 'ไม่ระบุ') continue; 
+
+                const web = mapWebName(row[webIdx]);
+                const sent = pNum(row[sentIdx]); 
+                const success = pNum(row[successIdx]);
+                const clicks = pNum(row[clicksIdx]); 
+                const cost = pNum(row[costIdx]);
+                
+                if(sent > 0 || success > 0 || cost > 0 || clicks > 0) {
+                    cleanData.push({ date: dateStr, group: matchedGroup, web, sent, success, clicks, cost });
+                }
+            }
+
+            rawData = cleanData.sort((a, b) => a.date.localeCompare(b.date));
+            groupsList = [...new Set(rawData.map(d => d.group))].filter(Boolean).sort();
+            websList = [...new Set(rawData.map(d => d.web))].filter(Boolean).sort();
+
+            buildPeriods(rawData);
+            updateGlobalDropdowns();
+
+            if(rawData.length > 0 && (!globalDatePicker.selectedDates || globalDatePicker.selectedDates.length === 0)) {
+                const maxD = new Date(rawData[rawData.length-1].date);
+                const minD = new Date(maxD.getFullYear(), maxD.getMonth(), 1);
+                globalDatePicker.setDate([minD, maxD]);
+            }
+            
+            if (compareSets.length === 0) { addCompareSet(); addCompareSet(); } 
+        }
+
+        function calculateHistoricalMedians() {
+            historicalMedians = {};
+            let groupPeriodStats = {};
+
+            rawData.forEach(r => {
+                const rd = new Date(r.date); rd.setHours(0,0,0,0);
+                let matchW = periodData.weeks.find(w => rd >= w.start && rd <= w.end);
+                if(!matchW) return;
+                
+                if(!groupPeriodStats[r.group]) groupPeriodStats[r.group] = {};
+                if(!groupPeriodStats[r.group][matchW.value]) {
+                    groupPeriodStats[r.group][matchW.value] = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                }
+                let st = groupPeriodStats[r.group][matchW.value];
+                st.sent += r.sent;
+                st.success += r.success;
+                st.clicks += r.clicks;
+            });
+            
+            periodData.weeks.forEach(wk => {
+                const wkNum = wk.weekNum;
+                if(weeklyMetrics[wkNum]) {
+                    for(let w in weeklyMetrics[wkNum]) {
+                        for(let g in weeklyMetrics[wkNum][w]) {
+                            if(!groupPeriodStats[g]) groupPeriodStats[g] = {};
+                            if(!groupPeriodStats[g][wk.value]) groupPeriodStats[g][wk.value] = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                            
+                            groupPeriodStats[g][wk.value].returns += weeklyMetrics[wkNum][w][g].returns || 0;
+                            groupPeriodStats[g][wk.value].deposits3d += weeklyMetrics[wkNum][w][g].deposits || 0;
+                        }
+                    }
+                }
+            });
+            
+            for (let g in groupPeriodStats) {
+                let sentArr = [], sucArr = [], clkArr = [], retArr = [], depArr = [];
+                for (let w in groupPeriodStats[g]) {
+                    let st = groupPeriodStats[g][w];
+                    if (st.sent > 0 || st.returns > 0 || st.deposits3d > 0) { 
+                        if (st.sent > 0) sentArr.push(st.sent);
+                        if (st.success > 0) sucArr.push(st.success);
+                        if (st.clicks > 0) clkArr.push(st.clicks);
+                        if (st.returns > 0) retArr.push(st.returns);
+                        if (st.deposits3d > 0) depArr.push(st.deposits3d);
+                    }
+                }
+                historicalMedians[g] = {
+                    sent: calculateMedian(sentArr),
+                    success: calculateMedian(sucArr),
+                    clicks: calculateMedian(clkArr),
+                    returns: calculateMedian(retArr),
+                    deposits3d: calculateMedian(depArr)
+                };
+            }
+        }
+
+        function getISOWeekNum(d) {
+            const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+            date.setUTCDate(date.getUTCDate() + 4 - (date.getUTCDay()||7));
+            const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+            return Math.ceil((((date - yearStart) / 86400000) + 1)/7);
+        }
+
+        function getMonday(d) {
+            d = new Date(d); var day = d.getDay(), diff = d.getDate() - day + (day == 0 ? -6:1); return new Date(d.setDate(diff));
+        }
+
+        function buildPeriods(data) {
+            periodData.weeks = []; periodData.months = [];
+            if(!data || data.length === 0) return;
+            const dates = data.map(d => new Date(d.date).getTime());
+            const minDate = new Date(Math.min(...dates)); const maxDate = new Date(Math.max(...dates));
+
+            let curM = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
+            while(curM <= maxDate) {
+                const y = curM.getFullYear(); const m = curM.getMonth(); const e = new Date(y, m + 1, 0, 23, 59, 59);
+                periodData.months.push({ value: `m_${y}_${m}`, label: curM.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' }), start: new Date(curM), end: e });
+                curM.setMonth(curM.getMonth() + 1);
+            }
+
+            let curW = getMonday(minDate); curW.setHours(0,0,0,0);
+            while(curW <= maxDate) {
+                const endW = new Date(curW); endW.setDate(endW.getDate() + 6); endW.setHours(23, 59, 59, 999);
+                const sStr = curW.toLocaleDateString('th-TH', {day:'numeric', month:'short'});
+                const eStr = endW.toLocaleDateString('th-TH', {day:'numeric', month:'short'});
+                const trueWeekNum = getISOWeekNum(curW); 
+                periodData.weeks.push({ value: `w_${curW.getTime()}`, weekNum: trueWeekNum, label: `W${trueWeekNum} (${sStr} - ${eStr})`, start: new Date(curW), end: endW });
+                curW.setDate(curW.getDate() + 7);
+            }
+            periodData.months.reverse(); periodData.weeks.reverse();
+        }
+
+        function updateGlobalDropdowns() {
+            const populate = (id, items) => {
+                const el = document.getElementById(id); if(!el) return;
+                const cur = el.value; el.innerHTML = '<option value="all">ทั้งหมด (ทุกกลุ่ม)</option>';
+                items.forEach(i => el.add(new Option(i, i)));
+                if(items.includes(cur) || cur === 'all') el.value = cur;
+            };
+            
+            const availableGroups = [...new Set(rawData.map(d => d.group))].filter(Boolean);
+            const groups = availableGroups.sort((a, b) => {
+                const idxA = targetGroupsRaw.indexOf(a);
+                const idxB = targetGroupsRaw.indexOf(b);
+                return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+            });
+            
+            populate('globalGroupFilter', groups); populate('globalWebFilter', websList);
+        }
+
+        function applyGlobalFilters() {
+            const g = document.getElementById('globalGroupFilter') ? document.getElementById('globalGroupFilter').value : 'all';
+            const w = document.getElementById('globalWebFilter') ? document.getElementById('globalWebFilter').value : 'all';
+            const dates = (globalDatePicker && globalDatePicker.selectedDates) ? globalDatePicker.selectedDates : null;
+
+            filteredData = rawData.filter(r => {
+                let mG = g === 'all' || r.group === g; let mW = w === 'all' || r.web === w; let mD = true;
+                if(dates && dates.length === 2) {
+                    const rd = new Date(r.date); rd.setHours(0,0,0,0);
+                    const s = new Date(dates[0]); s.setHours(0,0,0,0); const e = new Date(dates[1]); e.setHours(23,59,59,999);
+                    mD = rd >= s && rd <= e;
+                }
+                return mG && mW && mD;
+            });
+            updateGlobalKPIs(); updateGlobalCharts(); renderGroupTable();
+            
+            // เปิดหน้าต่าง Debug อัตโนมัติถ้าข้อมูลเป็น 0 (เผื่อมีปัญหา)
+            if (document.getElementById('megaDebugText') && document.getElementById('groupTableBody').innerHTML.includes('text-purple-600 font-semibold text-[15px]">0')) {
+                updateMegaDebugBanner();
+                document.getElementById('megaDebugBanner').classList.remove('hidden');
+            }
+        }
+
+        function updateGlobalKPIs() {
+            let sent=0, suc=0, clk=0, cst=0; const uDates = new Set();
+            filteredData.forEach(r => { sent+=r.sent; suc+=r.success; clk+=r.clicks; cst+=r.cost; uDates.add(r.date); });
+            const days = uDates.size || 1;
+            document.getElementById('kpiSent').innerText = fNum(sent); document.getElementById('kpiSentAvg').innerText = fNum(sent/days);
+            document.getElementById('kpiSuccess').innerText = fNum(suc); document.getElementById('kpiSuccessRate').innerText = sent > 0 ? (suc/sent*100).toFixed(1)+'%' : '0%';
+            document.getElementById('kpiClicks').innerText = fNum(clk); document.getElementById('kpiClickRate').innerText = suc > 0 ? (clk/suc*100).toFixed(1)+'%' : '0%';
+            document.getElementById('kpiCost').innerText = fCur(cst); document.getElementById('kpiCostPerClick').innerText = clk > 0 ? fCur(cst/clk) : '฿0.00';
+        }
+
+        function addCompareSet() {
+            const cIdx = compareSets.length;
+            const defaultPeriod = periodData.weeks.length > cIdx ? periodData.weeks[cIdx].value : (periodData.weeks.length > 0 ? periodData.weeks[0].value : '');
+            compareSets.push({
+                id: nextSetId++, colorIdx: cIdx % setColors.length,
+                group: 'all', type: 'week', period: defaultPeriod, customStart: null, customEnd: null
+            });
+            renderCompareSection();
+        }
+
+        function removeCompareSet(id) {
+            compareSets = compareSets.filter(s => s.id !== id);
+            compareSets.forEach((s, idx) => { s.colorIdx = idx % setColors.length; });
+            if(compareDatePickers[id]) { compareDatePickers[id].destroy(); delete compareDatePickers[id]; }
+            renderCompareSection();
+        }
+
+        function handleCompareChange(id, field, value) {
+            const set = compareSets.find(s => s.id === id); if(!set) return;
+            set[field] = value;
+            if (field === 'type') {
+                if(value === 'week' && periodData.weeks.length > 0) set.period = periodData.weeks[0].value;
+                if(value === 'month' && periodData.months.length > 0) set.period = periodData.months[0].value;
+                renderCompareSection();
+            } else { updateCompareData(); }
+        }
+
+        function renderCompareSection() {
+            const container = document.getElementById('compareCardsContainer'); if(!container) return;
+            container.innerHTML = '';
+            
+            const availableGroups = [...new Set(rawData.map(d => d.group))].filter(Boolean).sort((a, b) => {
+                const idxA = targetGroupsRaw.indexOf(a);
+                const idxB = targetGroupsRaw.indexOf(b);
+                return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+            });
+
+            compareSets.forEach((set, idx) => {
+                const color = setColors[set.colorIdx];
+                const card = document.createElement('div'); card.className = `relative p-5 rounded-xl border shadow-sm ${color.bg} ${color.border}`;
+                const groupOpts = '<option value="all">ทั้งหมด (ทุกกลุ่ม)</option>' + availableGroups.map(g => `<option value="${g}" ${set.group===g?'selected':''}>${g}</option>`).join('');
+                const typeOpts = `<option value="week" ${set.type==='week'?'selected':''}>รายสัปดาห์</option><option value="month" ${set.type==='month'?'selected':''}>รายเดือน</option><option value="custom" ${set.type==='custom'?'selected':''}>กำหนดเอง</option>`;
+                const pList = set.type === 'week' ? periodData.weeks : periodData.months;
+                const periodOpts = pList.map(p => `<option value="${p.value}" ${set.period===p.value?'selected':''}>${p.label}</option>`).join('');
+
+                card.innerHTML = `
+                    <div class="flex justify-between items-center mb-4">
+                        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold text-white bg-slate-800 shadow-sm border border-slate-700">ชุดที่ ${idx + 1}</span>
+                        ${compareSets.length > 1 ? `<button onclick="removeCompareSet(${set.id})" class="text-slate-400 hover:text-rose-500 transition-colors bg-white rounded-full p-1 shadow-sm border border-slate-200 w-7 h-7 flex items-center justify-center"><i class="fa-solid fa-xmark"></i></button>` : ''}
+                    </div>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-[11px] uppercase font-bold text-slate-500 mb-1">กลุ่มลูกค้า</label>
+                            <select onchange="handleCompareChange(${set.id}, 'group', this.value)" class="w-full text-sm rounded-lg border-slate-300 py-2 px-3 shadow-sm ${color.ring} ${color.focusBorder} bg-white/80">${groupOpts}</select>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-[11px] uppercase font-bold text-slate-500 mb-1">ช่วงเวลา</label>
+                                <select onchange="handleCompareChange(${set.id}, 'type', this.value)" class="w-full text-sm rounded-lg border-slate-300 py-2 px-3 shadow-sm ${color.ring} ${color.focusBorder} bg-white/80">${typeOpts}</select>
+                            </div>
+                            <div>
+                                <label class="block text-[11px] uppercase font-bold text-slate-500 mb-1">เลือกวันที่</label>
+                                ${set.type !== 'custom' ? `<select onchange="handleCompareChange(${set.id}, 'period', this.value)" class="w-full text-sm rounded-lg border-slate-300 py-2 px-3 shadow-sm ${color.ring} ${color.focusBorder} bg-white/80">${periodOpts}</select>` : `<input type="text" id="customDate_${set.id}" placeholder="เลือก..." class="w-full text-sm rounded-lg border-slate-300 py-2 px-3 shadow-sm bg-white cursor-pointer ${color.ring} ${color.focusBorder}">`}
+                            </div>
+                        </div>
+                    </div>
+                `;
+                container.appendChild(card);
+
+                if(set.type === 'custom') {
+                    setTimeout(() => {
+                        try {
+                            compareDatePickers[set.id] = flatpickr(`#customDate_${set.id}`, {
+                                mode: "range", dateFormat: "Y-m-d", locale: "th",
+                                defaultDate: set.customStart && set.customEnd ? [set.customStart, set.customEnd] : null,
+                                onChange: (dates) => { if(dates.length === 2) { set.customStart = dates[0]; set.customEnd = dates[1]; updateCompareData(); } }
+                            });
+                        } catch(e) {}
+                    }, 50);
+                }
+            });
+            updateCompareData();
+        }
+
+        function updateCompareData() {
+            if(rawData.length === 0) return;
+            const globalWebVal = document.getElementById('globalWebFilter') ? document.getElementById('globalWebFilter').value : 'all';
+
+            const setResults = compareSets.map((set, idx) => {
+                let start, end, labelStr = "";
+                if (set.type === 'custom') {
+                    if (set.customStart && set.customEnd) {
+                        start = new Date(set.customStart); start.setHours(0,0,0,0); end = new Date(set.customEnd); end.setHours(23,59,59,999); labelStr = "กำหนดเอง";
+                    } else return null;
+                } else {
+                    const list = set.type === 'week' ? periodData.weeks : periodData.months;
+                    const match = list.find(p => p.value === set.period);
+                    if(match) { start = match.start; end = match.end; labelStr = set.type==='week'?match.label.split(' ')[0]:match.label; } else return null;
+                }
+
+                let stats = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0, cost: 0 };
+                const activeWeeksSet = new Set();
+
+                rawData.forEach(r => {
+                    if (set.group !== 'all' && r.group !== set.group) return;
+                    if (globalWebVal !== 'all' && r.web !== globalWebVal) return;
+                    
+                    const rd = new Date(r.date); rd.setHours(0,0,0,0);
+                    if (rd >= start && rd <= end) { 
+                        stats.sent += r.sent; 
+                        stats.success += r.success; 
+                        stats.clicks += r.clicks; 
+                        stats.cost += r.cost; 
+                        
+                        let matchW = periodData.weeks.find(w => rd >= w.start && rd <= w.end);
+                        if(matchW) activeWeeksSet.add(matchW.value);
+                    }
+                });
+                
+                activeWeeksSet.forEach(wkVal => {
+                    const wk = periodData.weeks.find(w => w.value === wkVal);
+                    if(wk && weeklyMetrics[wk.weekNum]) {
+                        const websToInclude = globalWebVal === 'all' ? Object.keys(weeklyMetrics[wk.weekNum]) : [globalWebVal];
+                        websToInclude.forEach(w => {
+                            if(weeklyMetrics[wk.weekNum][w]) {
+                                const groupsToInclude = set.group === 'all' ? Object.keys(weeklyMetrics[wk.weekNum][w]) : [set.group];
+                                groupsToInclude.forEach(g => {
+                                    stats.returns += weeklyMetrics[wk.weekNum][w][g]?.returns || 0;
+                                    stats.deposits3d += weeklyMetrics[wk.weekNum][w][g]?.deposits || 0;
+                                });
+                            }
+                        });
+                    }
+                });
+                
+                const activeWeeksCount = activeWeeksSet.size || 1;
+                
+                let medians = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                if (set.group !== 'all' && historicalMedians[set.group]) {
+                    medians = historicalMedians[set.group];
+                } else if (set.group === 'all') {
+                    for (let g in historicalMedians) {
+                        medians.sent += historicalMedians[g].sent || 0;
+                        medians.success += historicalMedians[g].success || 0;
+                        medians.clicks += historicalMedians[g].clicks || 0;
+                        medians.returns += historicalMedians[g].returns || 0;
+                        medians.deposits3d += historicalMedians[g].deposits3d || 0;
+                    }
+                }
+
+                const df = (d) => d.toLocaleDateString('th-TH', {day:'2-digit', month:'short', year:'2-digit'});
+                return { 
+                    id: idx + 1, color: setColors[set.colorIdx], title: `ชุดที่ ${idx + 1}`, subtitle: `${set.group === 'all' ? 'ทุกกลุ่ม' : set.group} (${labelStr})`,
+                    dateRange: `${df(start)} - ${df(end)}`, stats: stats, medians: medians, activeWeeksCount: activeWeeksCount
+                };
+            }).filter(Boolean);
+
+            if(setResults.length === 0) return;
+
+            const thead = document.getElementById('compareTableHeader');
+            let headerHTML = '<tr><th class="px-4 py-3 rounded-tl-lg font-semibold w-1/4">รายการ</th>';
+            setResults.forEach(res => {
+                headerHTML += `<th class="px-4 py-3 text-right font-semibold"><div class="font-bold ${res.color.text}">${res.title}</div><div class="text-[10px] font-normal text-slate-500 mt-0.5 whitespace-nowrap">${res.subtitle}</div><div class="text-[9px] font-normal text-slate-400">${res.dateRange}</div></th>`;
+            });
+            if (setResults.length === 2) {
+                headerHTML += '<th class="px-4 py-3 text-right rounded-tr-lg font-semibold text-slate-500 w-1/6">แนวโน้ม (ชุด1 เทียบ ชุด2)</th>';
+            }
+            headerHTML += '</tr>';
+            thead.innerHTML = headerHTML;
+
+            const tbody = document.getElementById('compareTableBody');
+            
+            const metrics = [ 
+                { key: 'sent', label: 'จำนวนที่ยิงทั้งหมด', fmt: fNum, highlight: false }, 
+                { key: 'success', label: 'จำนวนยิงผ่าน', fmt: fNum, highlight: true }, 
+                { key: 'clicks', label: 'จำนวนคลิก (Bitly)', fmt: fNum, highlight: true, isRate: true }, 
+                { key: 'returns', label: 'จำนวนการกลับมา (%)', fmt: fNum, highlight: true, isRate: true },
+                { key: 'deposits3d', label: 'จำนวนการฝาก 3 วัน', fmt: fNum, highlight: true },
+                { key: 'cost', label: 'ค่าใช้จ่ายรวม', fmt: fCur, highlight: false, isCost: true } 
+            ];
+            
+            let bodyHTML = '';
+            metrics.forEach(m => {
+                bodyHTML += `<tr class="border-b border-slate-100 last:border-b-0 hover:bg-slate-50 transition-colors"><td class="px-4 py-3.5 font-medium text-slate-700 whitespace-nowrap align-top">${m.label}</td>`;
+                
+                setResults.forEach(res => { 
+                    let mainValueHTML = `<div class="${m.highlight ? res.color.text : 'text-slate-600'}">${m.fmt(res.stats[m.key])}`;
+                    if (m.isRate) {
+                        const rate = res.stats.success > 0 ? ((res.stats[m.key] / res.stats.success) * 100).toFixed(2) : '0.00';
+                        mainValueHTML += ` <span class="text-xs text-slate-400 font-normal">(${rate}%)</span>`;
+                    }
+                    mainValueHTML += `</div>`;
+
+                    let medianHTML = '';
+                    if (!m.isCost && res.medians) {
+                        const avgWeeklyCurrent = res.stats[m.key] / res.activeWeeksCount;
+                        const medianVal = res.medians[m.key];
+                        if (medianVal > 0) {
+                            const diff = avgWeeklyCurrent - medianVal;
+                            const pct = ((diff / medianVal) * 100).toFixed(1);
+                            let color = 'text-slate-400'; let icon = '<i class="fa-solid fa-minus"></i>'; let bg = 'bg-slate-100';
+                            if(diff > 0) { color = 'text-emerald-600'; bg = 'bg-emerald-50'; icon = '<i class="fa-solid fa-arrow-trend-up"></i>'; }
+                            else if(diff < 0) { color = 'text-rose-600'; bg = 'bg-rose-50'; icon = '<i class="fa-solid fa-arrow-trend-down"></i>'; }
+                            
+                            medianHTML = `<div class="mt-1 flex flex-col items-end gap-0.5"><div class="flex items-center justify-end"><span class="${color} ${bg} font-semibold text-[10px] px-1.5 py-0.5 rounded shadow-sm border border-black/5" title="เทียบปัจจุบัน(${fNum(avgWeeklyCurrent)}) กับมัธยฐาน(${fNum(medianVal)})">${pct>0?'+':''}${pct}% ${icon}</span></div><span class="text-[10px] text-slate-400">Med: ${fNum(medianVal)}</span></div>`;
+                        }
+                    }
+
+                    bodyHTML += `<td class="px-4 py-3.5 text-right font-bold text-[15px] align-top">
+                        ${mainValueHTML}
+                        ${medianHTML}
+                    </td>`; 
+                });
+                
+                if (setResults.length === 2) {
+                    const val1 = setResults[0].stats[m.key]; const val2 = setResults[1].stats[m.key]; const diff = val1 - val2;
+                    const pct = val2 > 0 ? ((diff / val2) * 100).toFixed(1) : (val1 > 0 ? 100 : 0);
+                    let color = 'text-slate-400'; let icon = '<i class="fa-solid fa-minus"></i>'; let bg = 'bg-slate-100';
+                    if(diff > 0) { color = m.isCost ? 'text-rose-600' : 'text-emerald-600'; bg = m.isCost ? 'bg-rose-50' : 'bg-emerald-50'; icon = '<i class="fa-solid fa-arrow-trend-up"></i>'; }
+                    else if(diff < 0) { color = m.isCost ? 'text-emerald-600' : 'text-rose-600'; bg = m.isCost ? 'bg-emerald-50' : 'bg-rose-50'; icon = '<i class="fa-solid fa-arrow-trend-down"></i>'; }
+                    bodyHTML += `<td class="px-4 py-3.5 text-right font-bold ${color} align-top"><div class="flex items-center justify-end space-x-1.5 ${bg} inline-flex rounded-md px-2 py-1 shadow-sm border border-black/5" title="(ชุดที่ 1 ลบ ชุดที่ 2) / ชุดที่ 2"><span>${pct>0?'+':''}${pct}%</span><span>${icon}</span></div></td>`;
+                }
+                bodyHTML += `</tr>`;
+            });
+            tbody.innerHTML = bodyHTML;
+            if(document.getElementById('multiCompareChart')) renderMultiCompareChart(setResults);
+        }
+
+        function renderMultiCompareChart(results) {
+            const ctx = document.getElementById('multiCompareChart').getContext('2d');
+            if(multiCompareChartInstance) multiCompareChartInstance.destroy();
+            multiCompareChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['ยิงทั้งหมด', 'ยิงผ่าน', 'คลิก', 'กลับมา', 'ฝาก 3 วัน'],
+                    datasets: results.map(res => ({
+                        label: `[${res.title}] ${res.subtitle}`, 
+                        data: [res.stats.sent, res.stats.success, res.stats.clicks, res.stats.returns, res.stats.deposits3d],
+                        backgroundColor: res.color.hexLight, borderColor: res.color.hex, borderWidth: 1, borderRadius: 4
+                    }))
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top', labels: { usePointStyle: true, boxWidth: 8, font: { family: "'Prompt', sans-serif", size: 11 } } }, tooltip: { callbacks: { label: (c) => ` ${c.dataset.label}: ${fNum(c.raw)}` } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, border: {display: false} } } }
+            });
+        }
+
+        function updateGlobalCharts() {
+            if(filteredData.length === 0) return;
+            const dData = {}; filteredData.forEach(r => { if(!dData[r.date]) dData[r.date] = { s:0, c:0 }; dData[r.date].s += r.sent; dData[r.date].c += r.cost; });
+            const labels = Object.keys(dData).sort(); const fLabels = labels.map(d => new Date(d).toLocaleDateString('th-TH', {day:'numeric', month:'short'}));
+            
+            if(document.getElementById('trendChart')) {
+                if(trendChartInstance) trendChartInstance.destroy();
+                trendChartInstance = new Chart(document.getElementById('trendChart'), { type: 'line', data: { labels: fLabels, datasets: [ { label: 'จำนวนที่ยิง', data: labels.map(d=>dData[d].s), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', fill: true, yAxisID: 'y' }, { label: 'ค่าใช้จ่าย', data: labels.map(d=>dData[d].c), borderColor: '#ef4444', borderDash: [5,5], yAxisID: 'y1' } ] }, options: { responsive: true, maintainAspectRatio: false, scales: { y: { type: 'linear', position: 'left' }, y1: { type: 'linear', position: 'right', grid: {drawOnChartArea: false} } } } });
+            }
+
+            const gData={}, wData={}; filteredData.forEach(r => { if(!gData[r.group]) gData[r.group]=0; gData[r.group]+=r.success; if(!wData[r.web]) wData[r.web]=0; wData[r.web]+=r.success; });
+            const sortD = (obj) => Object.entries(obj).sort((a,b)=>b[1]-a[1]); const gs = sortD(gData), ws = sortD(wData);
+            if(document.getElementById('groupChart')) { if(groupChartInstance) groupChartInstance.destroy(); groupChartInstance = new Chart(document.getElementById('groupChart'), { type: 'doughnut', data: { labels: gs.map(x=>x[0]), datasets: [{ data: gs.map(x=>x[1]), backgroundColor: baseColors }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } } }); }
+            if(document.getElementById('webChart')) { if(webChartInstance) webChartInstance.destroy(); webChartInstance = new Chart(document.getElementById('webChart'), { type: 'doughnut', data: { labels: ws.map(x=>x[0]), datasets: [{ data: ws.map(x=>x[1]), backgroundColor: [...baseColors].reverse() }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } } }); }
+        }
+
+        // --- GROUP DETAIL TABLE ---
+        function renderGroupTable() {
+            const tableBody = document.getElementById('groupTableBody');
+            const tableFoot = document.getElementById('groupTableFoot');
+            tableBody.innerHTML = ''; tableFoot.innerHTML = '';
+            
+            if (filteredData.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500">ไม่พบข้อมูลในช่วงเวลาที่เลือก</td></tr>';
+                return;
+            }
+
+            const groupStats = {};
+            let totalSentAll = 0, totalSuccessAll = 0, totalClicksAll = 0, totalReturnsAll = 0, totalDeposits3dAll = 0;
+            const activeWeeksSet = new Set();
+
+            filteredData.forEach(row => {
+                const rd = new Date(row.date); rd.setHours(0,0,0,0);
+                let matchW = periodData.weeks.find(w => rd >= w.start && rd <= w.end);
+                if(matchW) activeWeeksSet.add(matchW.value);
+
+                if (!groupStats[row.group]) groupStats[row.group] = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                groupStats[row.group].sent += row.sent;
+                groupStats[row.group].success += row.success;
+                groupStats[row.group].clicks += (row.clicks || 0);
+                
+                totalSentAll += row.sent;
+                totalSuccessAll += row.success;
+                totalClicksAll += (row.clicks || 0);
+            });
+
+            const globalWebVal = document.getElementById('globalWebFilter') ? document.getElementById('globalWebFilter').value : 'all';
+            
+            activeWeeksSet.forEach(wkVal => {
+                const wk = periodData.weeks.find(w => w.value === wkVal);
+                if(wk && weeklyMetrics[wk.weekNum]) {
+                    const websToInclude = globalWebVal === 'all' ? Object.keys(weeklyMetrics[wk.weekNum]) : [globalWebVal];
+                    websToInclude.forEach(w => {
+                        if(weeklyMetrics[wk.weekNum][w]) {
+                            for(let g in weeklyMetrics[wk.weekNum][w]) {
+                                if(!groupStats[g]) groupStats[g] = { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                                groupStats[g].returns += weeklyMetrics[wk.weekNum][w][g].returns || 0;
+                                groupStats[g].deposits3d += weeklyMetrics[wk.weekNum][w][g].deposits || 0;
+                                
+                                totalReturnsAll += weeklyMetrics[wk.weekNum][w][g].returns || 0;
+                                totalDeposits3dAll += weeklyMetrics[wk.weekNum][w][g].deposits || 0;
+                            }
+                        }
+                    });
+                }
+            });
+
+            const activeWeeksCount = activeWeeksSet.size || 1;
+
+            const sortedGroups = Object.keys(groupStats).sort((a, b) => {
+                const idxA = targetGroupsRaw.indexOf(a);
+                const idxB = targetGroupsRaw.indexOf(b);
+                return (idxA === -1 ? 999 : idxA) - (idxB === -1 ? 999 : idxB);
+            });
+
+            const renderMedianBadge = (totalVal, medianVal) => {
+                if (!medianVal || medianVal === 0) return '';
+                const avgWeeklyCurrent = totalVal / activeWeeksCount;
+                const diff = avgWeeklyCurrent - medianVal;
+                const pct = ((diff / medianVal) * 100).toFixed(1);
+                
+                let color = 'text-slate-400'; let icon = '<i class="fa-solid fa-minus"></i>'; let bg = 'bg-slate-100';
+                if(diff > 0) { color = 'text-emerald-600'; bg = 'bg-emerald-50'; icon = '<i class="fa-solid fa-arrow-trend-up"></i>'; }
+                else if(diff < 0) { color = 'text-rose-600'; bg = 'bg-rose-50'; icon = '<i class="fa-solid fa-arrow-trend-down"></i>'; }
+                
+                return `<div class="mt-1 flex flex-col items-end gap-0.5"><div class="flex items-center justify-end"><span class="${color} ${bg} font-semibold text-[10px] px-1.5 py-0.5 rounded shadow-sm border border-black/5" title="เทียบปัจจุบัน(${fNum(avgWeeklyCurrent)}) กับมัธยฐาน(${fNum(medianVal)})">${pct>0?'+':''}${pct}% ${icon}</span></div><span class="text-[10px] text-slate-400">Med: ${fNum(medianVal)}</span></div>`;
+            };
+
+            sortedGroups.forEach(group => {
+                const stats = groupStats[group];
+                const medianData = historicalMedians[group] || { sent: 0, success: 0, clicks: 0, returns: 0, deposits3d: 0 };
+                
+                const clickRate = stats.success > 0 ? ((stats.clicks / stats.success) * 100).toFixed(2) : '0.00';
+                const returnRate = stats.success > 0 ? ((stats.returns / stats.success) * 100).toFixed(2) : '0.00';
+                
+                const tr = document.createElement('tr');
+                tr.className = 'bg-white border-b hover:bg-slate-50 transition-colors';
+                tr.innerHTML = `
+                    <td class="px-6 py-4 font-bold text-slate-700 whitespace-nowrap border-r border-slate-100 align-top">${group}</td>
+                    
+                    <td class="px-6 py-4 text-right align-top">
+                        <div class="text-blue-600 font-semibold text-[15px]">${fNum(stats.sent)}</div>
+                        ${renderMedianBadge(stats.sent, medianData.sent)}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-right align-top">
+                        <div class="text-emerald-600 font-semibold text-[15px]">${fNum(stats.success)}</div>
+                        ${renderMedianBadge(stats.success, medianData.success)}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-right align-top">
+                        <div class="text-orange-500 font-semibold text-[15px]">${fNum(stats.clicks)} <span class="text-xs text-slate-400 font-normal">(${clickRate}%)</span></div>
+                        ${renderMedianBadge(stats.clicks, medianData.clicks)}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-right align-top">
+                        <div class="text-purple-600 font-semibold text-[15px]">${fNum(stats.returns)} <span class="text-xs text-slate-400 font-normal">(${returnRate}%)</span></div>
+                        ${renderMedianBadge(stats.returns, medianData.returns)}
+                    </td>
+                    
+                    <td class="px-6 py-4 text-right align-top">
+                        <div class="text-pink-600 font-semibold text-[15px]">${fNum(stats.deposits3d)}</div>
+                        ${renderMedianBadge(stats.deposits3d, medianData.deposits3d)}
+                    </td>
+                `;
+                tableBody.appendChild(tr);
+            });
+            
+            const totalClickRate = totalSuccessAll > 0 ? ((totalClicksAll / totalSuccessAll) * 100).toFixed(2) : '0.00';
+            const totalReturnRate = totalSuccessAll > 0 ? ((totalReturnsAll / totalSuccessAll) * 100).toFixed(2) : '0.00';
+            
+            tableFoot.innerHTML = `
+                <tr>
+                    <th scope="row" class="px-6 py-3 text-base border-r border-slate-200">รวมทั้งหมด (Sum)</th>
+                    <td class="px-6 py-3 text-right text-base text-blue-700">${fNum(totalSentAll)}</td>
+                    <td class="px-6 py-3 text-right text-base text-emerald-700">${fNum(totalSuccessAll)}</td>
+                    <td class="px-6 py-3 text-right text-base text-orange-600">${fNum(totalClicksAll)} <span class="text-xs text-slate-500 font-normal">(${totalClickRate}%)</span></td>
+                    <td class="px-6 py-3 text-right text-base text-purple-600">${fNum(totalReturnsAll)} <span class="text-xs text-slate-500 font-normal">(${totalReturnRate}%)</span></td>
+                    <td class="px-6 py-3 text-right text-base text-pink-600">${fNum(totalDeposits3dAll)}</td>
+                </tr>
+            `;
+        }
+    </script>
+</body>
+</html>
